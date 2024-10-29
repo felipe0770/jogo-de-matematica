@@ -1,0 +1,191 @@
+import tkinter as tk
+import random
+import psycopg2
+from tkinter import messagebox
+
+# Conectar ao banco de dados PostgreSQL (altere os parâmetros conforme necessário)
+conn = psycopg2.connect(
+    dbname='jogo_matematica',  # Nome do seu banco de dados
+    user='postgres',      # Seu usuário do PostgreSQL
+    password='admin123',    # Sua senha
+    host='localhost',        # Endereço do servidor (localhost ou IP)
+    port='5432'              # Porta do PostgreSQL
+)
+cursor = conn.cursor()
+
+# Criar a tabela de jogadores se não existir
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS players (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    score INTEGER NOT NULL,
+    wrong_answers INTEGER NOT NULL DEFAULT 0
+)
+''')
+conn.commit()
+
+# Função para gerar uma pergunta aleatória
+def generate_question():
+    num1 = random.randint(1, 20)  # Números de 1 a 20
+    num2 = random.randint(1, 20)  # Números de 1 a 20
+    operation = random.choice(['+', '-'])
+
+    if operation == '+':
+        question = f"{num1} + {num2}"
+        answer = num1 + num2
+    else:
+        question = f"{num1} - {num2}"
+        answer = num1 - num2
+
+    return question, answer
+
+# Função para iniciar o jogo
+def start_game():
+    global question_label, buttons, score_label, question, correct_answer
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    title_label = tk.Label(root, text="Jogo de Matemática", font=("Arial", 30), bg="#2e7d32", fg="white")
+    title_label.pack(pady=20, fill=tk.X)
+
+    question, correct_answer = generate_question()
+
+    question_label = tk.Label(root, text=f"{question} = ?", font=("Arial", 24), bg="#2e7d32", fg="white")
+    question_label.pack(pady=20)
+
+    # Gerar 3 opções de resposta
+    answers = [correct_answer, correct_answer + random.randint(1, 3), correct_answer - random.randint(1, 3)]
+    random.shuffle(answers)
+
+    buttons_frame = tk.Frame(root)
+    buttons_frame.pack(pady=10)
+
+    global buttons  # Declare buttons como global
+    buttons = []
+    for answer in answers:
+        button = tk.Button(buttons_frame, text=str(answer), font=("Arial", 18),
+                           command=lambda ans=answer: check_answer(ans), bg="#cddc39", activebackground="#8bc34a")
+        button.pack(side=tk.LEFT, padx=10)
+        buttons.append(button)
+
+    back_button = tk.Button(root, text="Voltar ao Menu", command=main_menu, bg="#f44336", fg="white")
+    back_button.pack(pady=20)
+
+    global score_label  # Declare score_label como global
+    score_label = tk.Label(root, text=f"Pontuação: {score}", font=("Arial", 18), bg="#2e7d32", fg="white")
+    score_label.pack()
+
+# Função para verificar a resposta
+def check_answer(answer):
+    global score
+    if answer == correct_answer:
+        score += 1
+        score_label.config(text=f"Pontuação: {score}")
+        for button in buttons:
+            if int(button.cget('text')) == answer:
+                button.config(bg="green")
+        root.after(1000, start_game)  # Ir para a próxima questão
+    else:
+        messagebox.showerror("Resposta Incorreta", "A resposta está errada. Tente novamente!")
+        increment_wrong_answers()  # Incrementar contagem de respostas erradas
+        for button in buttons:
+            if int(button.cget('text')) == answer:
+                button.config(bg="red")
+
+# Função para salvar a pontuação do jogador
+def save_score(points, wrong_answers):
+    if player_name:  # Verifica se o nome do jogador não está vazio
+        cursor.execute('INSERT INTO players (name, score, wrong_answers) VALUES (%s, %s, %s)',
+                       (player_name, points, wrong_answers))
+        conn.commit()
+    else:
+        print("Erro: O nome do jogador não foi definido.")  # Pode ser útil para depuração
+
+# Função para incrementar o número de perguntas erradas
+def increment_wrong_answers():
+    global wrong_answers
+    wrong_answers += 1
+
+# Função para exibir o ranking
+def show_ranking():
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    title_label = tk.Label(root, text="Ranking", font=("Arial", 30), bg="#2196F3", fg="white")
+    title_label.pack(pady=20, fill=tk.X)
+
+    # Consultar o ranking no banco de dados
+    cursor.execute('SELECT name, score, wrong_answers FROM players ORDER BY score DESC')
+    rankings = cursor.fetchall()
+
+    if rankings:
+        top_player = rankings[0]
+        top_label = tk.Label(root,
+                             text=f"🏆 Melhor Jogador: {top_player[0]} - {top_player[1]} pontos, Erros: {top_player[2]}",
+                             font=("Arial", 24), bg="#FFEB3B")
+        top_label.pack(pady=10)
+
+        rankings_frame = tk.Frame(root)
+        rankings_frame.pack(pady=10)
+
+        for rank, (name, score, wrong) in enumerate(rankings, start=1):
+            ranking_label = tk.Label(rankings_frame, text=f"{rank}. {name} - {score} pontos, Erros: {wrong}",
+                                     font=("Arial", 18), bg="#2196F3", fg="white")
+            ranking_label.pack(anchor=tk.W)
+    else:
+        no_players_label = tk.Label(root, text="Nenhum jogador registrado ainda.", font=("Arial", 18), bg="#2196F3",
+                                    fg="white")
+        no_players_label.pack(pady=10)
+
+    back_button = tk.Button(root, text="Voltar ao Menu", command=main_menu, bg="#f44336", fg="white")
+    back_button.pack(pady=20)
+
+# Função para exibir a tela inicial
+def main_menu():
+    global score, wrong_answers
+    score = 0
+    wrong_answers = 0  # Reinicia o contador de respostas erradas
+    for widget in root.winfo_children():
+        widget.destroy()
+
+    title_label = tk.Label(root, text="Jogo de Matemática", font=("Arial", 30), bg="#2e7d32", fg="white")
+    title_label.pack(pady=20, fill=tk.X)
+
+    name_label = tk.Label(root, text="Insira seu nome:", font=("Arial", 18), bg="#2e7d32", fg="white")
+    name_label.pack(pady=10)
+
+    name_entry = tk.Entry(root, font=("Arial", 18))
+    name_entry.pack(pady=10)
+
+    play_button = tk.Button(root, text="Jogar", font=("Arial", 24),
+                            command=lambda: start_game_with_name(name_entry.get()), bg="#4CAF50", fg="white")
+    play_button.pack(pady=10)
+
+    ranking_button = tk.Button(root, text="Ranking", font=("Arial", 24), command=show_ranking, bg="#2196F3", fg="white")
+    ranking_button.pack(pady=10)
+
+    exit_button = tk.Button(root, text="Sair", font=("Arial", 24),
+                            command=lambda: (save_score(0, wrong_answers), root.quit()), bg="#f44336", fg="white")
+    exit_button.pack(pady=10)
+
+def start_game_with_name(name):
+    if name.strip():  # Verifica se o nome não está vazio
+        global player_name
+        player_name = name.strip()
+        start_game()
+
+# Configuração inicial da janela do jogo
+root = tk.Tk()
+root.title("Jogo de Matemática")
+root.geometry("400x600")
+root.configure(bg="#2e7d32")
+
+score = 0
+wrong_answers = 0  # Inicializa o contador de respostas erradas
+player_name = ""
+
+main_menu()
+
+# Fechar a conexão com o banco de dados ao sair
+root.protocol("WM_DELETE_WINDOW", lambda: (save_score(0, wrong_answers), conn.close(), root.destroy()))
+root.mainloop()
